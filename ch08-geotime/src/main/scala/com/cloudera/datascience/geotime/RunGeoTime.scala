@@ -6,23 +6,23 @@
 
 package com.cloudera.datascience.geotime
 
-import com.cloudera.datascience.geotime.GeoJsonProtocol._
-
-import com.esri.core.geometry.Point
-
-import com.github.nscala_time.time.Imports._
 
 import java.text.SimpleDateFormat
+import java.util.Locale
+
+import scala.collection.mutable.ArrayBuffer
+import scala.reflect.ClassTag
 
 import org.apache.spark.{HashPartitioner, Partitioner, SparkConf, SparkContext}
 import org.apache.spark.SparkContext._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.util.StatCounter
 
-import scala.collection.mutable.ArrayBuffer
-import scala.reflect.ClassTag
-
+import com.esri.core.geometry.Point
+import org.joda.time.{DateTime, Duration}
 import spray.json._
+
+import com.cloudera.datascience.geotime.GeoJsonProtocol._
 
 case class Trip(
   pickupTime: DateTime,
@@ -32,7 +32,7 @@ case class Trip(
 
 object RunGeoTime extends Serializable {
 
-  val formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+  val formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
 
   def main(args: Array[String]): Unit = {
     val sc = new SparkContext(new SparkConf().setAppName("GeoTime"))
@@ -161,7 +161,7 @@ object RunGeoTime extends Serializable {
     d.getStandardHours >= 4
   }
 
-  def groupByKeyAndSortValues[K : Ordering : ClassTag, V : ClassTag, S](
+  def groupByKeyAndSortValues[K : Ordering : ClassTag, V : ClassTag, S : Ordering](
       rdd: RDD[(K, V)],
       secondaryKeyFunc: (V) => S,
       splitFunc: (V, V) => Boolean,
@@ -172,7 +172,6 @@ object RunGeoTime extends Serializable {
       }
     }
     val partitioner = new FirstKeyPartitioner[K, S](numPartitions)
-    implicit val ordering: Ordering[(K,S)] = Ordering.by(_._1)
     presess.repartitionAndSortWithinPartitions(partitioner).mapPartitions(groupSorted(_, splitFunc))
   }
 

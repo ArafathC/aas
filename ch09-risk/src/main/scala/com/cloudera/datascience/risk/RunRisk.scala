@@ -8,13 +8,18 @@ package com.cloudera.datascience.risk
 
 import java.io.File
 import java.text.SimpleDateFormat
+import java.util.Locale
 
 import scala.collection.mutable.ArrayBuffer
 import scala.io.Source
 
+import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.spark.SparkContext._
+import org.apache.spark.rdd.RDD
+
 import breeze.plot._
 
-import com.github.nscala_time.time.Imports._
+import com.github.nscala_time.time.Implicits._
 
 import org.apache.commons.math3.distribution.ChiSquaredDistribution
 import org.apache.commons.math3.distribution.MultivariateNormalDistribution
@@ -22,9 +27,7 @@ import org.apache.commons.math3.random.MersenneTwister
 import org.apache.commons.math3.stat.correlation.Covariance
 import org.apache.commons.math3.stat.regression.OLSMultipleLinearRegression
 
-import org.apache.spark.{SparkConf, SparkContext}
-import org.apache.spark.SparkContext._
-import org.apache.spark.rdd.RDD
+import org.joda.time.DateTime
 
 object RunRisk {
   def main(args: Array[String]): Unit = {
@@ -77,12 +80,7 @@ object RunRisk {
   def computeFactorWeights(
       stocksReturns: Seq[Array[Double]],
       factorFeatures: Array[Array[Double]]): Array[Array[Double]] = {
-    val models = stocksReturns.map(linearModel(_, factorFeatures))
-    val factorWeights = Array.ofDim[Double](stocksReturns.length, factorFeatures.head.length+1)
-    for (s <- 0 until stocksReturns.length) {
-      factorWeights(s) = models(s).estimateRegressionParameters()
-    }
-    factorWeights
+    stocksReturns.map(linearModel(_, factorFeatures)).map(_.estimateRegressionParameters()).toArray
   }
 
   def featurize(factorReturns: Array[Double]): Array[Double] = {
@@ -102,7 +100,7 @@ object RunRisk {
     val factors1 = Array("crudeoil.tsv", "us30yeartreasurybonds.tsv").
       map(x => new File(factorsPrefix + x)).
       map(readInvestingDotComHistory)
-    val factors2 = Array("SNP.csv", "NDX.csv").
+    val factors2 = Array("^GSPC.csv", "^IXIC.csv").
       map(x => new File(factorsPrefix + x)).
       map(readYahooHistory)
 
@@ -142,7 +140,7 @@ object RunRisk {
     for (instrument <- instruments) {
       totalReturn += instrumentTrialReturn(instrument, trial)
     }
-    totalReturn
+    totalReturn / instruments.size
   }
 
   /**
@@ -159,7 +157,11 @@ object RunRisk {
   }
 
   def twoWeekReturns(history: Array[(DateTime, Double)]): Array[Double] = {
-    history.sliding(10).map(window => window.last._2 - window.head._2).toArray
+    history.sliding(10).map { window =>
+      val next = window.last._2
+      val prev = window.head._2
+      (next - prev) / prev
+    }.toArray
   }
 
   def linearModel(instrument: Array[Double], factorMatrix: Array[Array[Double]])
@@ -225,7 +227,7 @@ object RunRisk {
   }
 
   def readInvestingDotComHistory(file: File): Array[(DateTime, Double)] = {
-    val format = new SimpleDateFormat("MMM d, yyyy")
+    val format = new SimpleDateFormat("MMM d, yyyy", Locale.ENGLISH)
     val lines = Source.fromFile(file).getLines().toSeq
     lines.map(line => {
       val cols = line.split('\t')
@@ -239,7 +241,7 @@ object RunRisk {
    * Reads a history in the Yahoo format
    */
   def readYahooHistory(file: File): Array[(DateTime, Double)] = {
-    val format = new SimpleDateFormat("yyyy-MM-dd")
+    val format = new SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)
     val lines = Source.fromFile(file).getLines().toSeq
     lines.tail.map(line => {
       val cols = line.split(',')
